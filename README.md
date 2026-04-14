@@ -2,7 +2,7 @@ This is a very rudimentary agent implementation. It does not provide modularizat
 
 # Submit Your Agent
 
-Please follow the instructions in `gpu_service_guide.md` to upload your code to the server at `10.176.37.34`. This server may also be used for development, but if other servers still have available GPUs, please do not use this one for development for the time being.
+Please follow the instructions in `gpu_service_guide.md` to upload your code to the server at `10.176.37.31`. This server may also be used for development, but if other servers still have available GPUs, please do not use this one for development for the time being.
 
 
 If you have prepared your code in your workspace, you can use `/submit` to run it in the evaluation container.
