@@ -2,10 +2,6 @@
   "targets": [
     "physical_sm_count",
     "actual_core_clock_mhz",
-    "peak_fp32_tflops",
-    "dram_bandwidth_gbps",
-    "l2_cache_size_kb",
-    "l1_latency_cycles",
-    "l2_latency_cycles"
+    "peak_fp32_tflops"
   ]
 }
