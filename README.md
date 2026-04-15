@@ -1,8 +1,8 @@
-This is a very rudimentary agent implementation. It does not provide modularization between the agent and the tools, and the implementations of its various functions are highly coupled. It is provided for reference only. The submission channel will open later on April 14.
+This is a very rudimentary agent implementation. It does not provide modularization between the agent and the tools, and the implementations of its various functions are highly coupled. It is provided for reference only. 
 
 # Submit Your Agent
 
-Please follow the instructions in `gpu_service_guide.md` to upload your code to the server at `10.176.37.31`. This server may also be used for development, but if other servers still have available GPUs, please do not use this one for development for the time being.
+Please follow the instructions in `gpu_service_guide.md` to upload your code to the server at `10.176.37.34`. This server may also be used for development, but if other servers still have available GPUs, please do not use this one for development for the time being.
 
 
 If you have prepared your code in your workspace, you can use `/submit` to run it in the evaluation container.
@@ -76,7 +76,7 @@ response = client.chat.completions.create(
   * if you already have a running `/start` environment, you cannot `/submit`
   * if you already have a running `/submit` task, you cannot start or submit again
 * Each student can submit **at most two times** before 4/21 8 am.
-* Each submission can run for **at most 35 minutes**. Submissions exceeding this limit may be terminated automatically.
+* Each submission can run for **at most 30 minutes**. Submissions exceeding this limit may be terminated automatically.
 * You may encounter API rate limiting or excessive request frequency sometimes, just wait for a short period before submitting again.
 
 
@@ -115,6 +115,19 @@ Example response:
 
 Please keep the returned `output_file`.
 It is the identifier for checking your submit status.
+
+### Submit for test
+
+This submission entry is for testing purposes only. There is no limit on the number of submissions, and it uses the DeepSeek API. However, it also has an overall API token limit. So, please still use it sparingly.
+
+```bash
+# linux or mac
+curl -X POST http://<server>:8080/submit-test \
+  -H "Content-Type: application/json" \
+  -d '{ "id": "23210240000", "gpu": 1 }'
+```
+
+
 
 ### Check submit status
 
