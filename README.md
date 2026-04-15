@@ -1,4 +1,9 @@
+
+
 This is a very rudimentary agent implementation. It does not provide modularization between the agent and the tools, and the implementations of its various functions are highly coupled. It is provided for reference only. 
+
+# !!! NOTICE !!!
+Now you can test your submission with the `/submit-test`. See more details below.
 
 # Submit Your Agent
 
