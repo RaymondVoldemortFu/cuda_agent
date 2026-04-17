@@ -3,6 +3,7 @@
 This is a very rudimentary agent implementation. It does not provide modularization between the agent and the tools, and the implementations of its various functions are highly coupled. It is provided for reference only. 
 
 # !!! NOTICE !!!
+- A new server with access to the external internet (such as ChatGPT) has been added: `10.176.34.113`
 
 - The new server supports **preemptive scheduling** with the following priority order:
 
