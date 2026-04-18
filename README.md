@@ -98,7 +98,7 @@ response = client.chat.completions.create(
 
   * if you already have a running `/start` environment, you cannot `/submit`
   * if you already have a running `/submit` task, you cannot start or submit again
-* Each student can submit **at most two times** before 4/21 8 am.
+* Each student can submit **at most two times** before 4/28 8 am and need to submit **at least one time** before 4/21 8 am.
 * Each submission can run for **at most 30 minutes**. Submissions exceeding this limit may be terminated automatically.
 * You may encounter API rate limiting or excessive request frequency sometimes, just wait for a short period before submitting again.
 
