@@ -117,6 +117,12 @@ class AppSettings(BaseSettings):
         default="llm_session.md",
         validation_alias=AliasChoices("HW_PROBE_LLM_SESSION_MARKDOWN"),
     )
+    llm_session_markdown_max_lines: int = Field(
+        default=3000,
+        ge=1,
+        le=500_000,
+        validation_alias=AliasChoices("HW_PROBE_LLM_SESSION_MARKDOWN_MAX_LINES"),
+    )
     log_file_max_bytes: int = Field(
         default=20 * 1024 * 1024,
         ge=256 * 1024,

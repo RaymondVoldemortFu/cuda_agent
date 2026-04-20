@@ -86,6 +86,7 @@ def main() -> None:
         md_path,
         session_id=session_id,
         block_max_chars=settings.max_tool_output_chars,
+        max_file_lines=settings.llm_session_markdown_max_lines,
     )
     trace_handlers: list[Any] = [trace_handler, md_log]
     _emit_trace_custom(
@@ -144,7 +145,11 @@ def main() -> None:
     append_results_log(ws, settings.results_log_name, f"完成: 已写入 {out_path} session={session_id}")
     print(f"[hw_probe] 输出: {out_path}", flush=True)
     print(f"[hw_probe] 完整 LLM trace: {trace_path}", flush=True)
-    print(f"[hw_probe] LLM 可读日志 (Markdown): {md_path}", flush=True)
+    print(
+        f"[hw_probe] LLM 纯文本日志 (Markdown): {md_path} "
+        f"(单文件最多 {settings.llm_session_markdown_max_lines} 行，超出写入 {md_path.stem}.part2.md …)",
+        flush=True,
+    )
     print(f"[hw_probe] DEBUG 日志: {log_dir / settings.debug_log_filename}", flush=True)
 
 
