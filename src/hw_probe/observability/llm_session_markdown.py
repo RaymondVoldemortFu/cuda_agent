@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import threading
 from pathlib import Path
@@ -73,6 +74,39 @@ def _message_body_text(m: BaseMessage, *, max_chars: int) -> str:
     return _trim(str(c), max_chars)
 
 
+def _message_identity_bytes(m: BaseMessage) -> bytes:
+    """用于判断「是否为同一条消息」的稳定字节串（含类型、正文与工具相关字段）。"""
+    t = type(m).__name__.encode("utf-8", errors="replace")
+    c = m.content
+    if isinstance(c, str):
+        raw = c.encode("utf-8", errors="replace")
+    else:
+        raw = json.dumps(c, ensure_ascii=False, default=str).encode("utf-8", errors="replace")
+    extra = b""
+    if isinstance(m, AIMessage):
+        if m.tool_calls:
+            extra += json.dumps(m.tool_calls, ensure_ascii=False, default=str).encode("utf-8", errors="replace")
+    if isinstance(m, ToolMessage):
+        extra += b"\nname=" + (m.name or "").encode("utf-8", errors="replace")
+    return t + b"\0" + raw + b"\0" + extra
+
+
+def _message_fingerprint(m: BaseMessage) -> str:
+    return hashlib.sha256(_message_identity_bytes(m)).hexdigest()
+
+
+def _lcp_len(prev: list[str], cur: list[str]) -> int:
+    n = min(len(prev), len(cur))
+    i = 0
+    while i < n and prev[i] == cur[i]:
+        i += 1
+    return i
+
+
+def _prompt_fingerprint(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8", errors="replace")).hexdigest()
+
+
 def _format_block(*, agent: str, kind: str, body: str) -> str:
     body = (body or "").strip("\n")
     ts = _utc_iso()
@@ -99,7 +133,11 @@ def _tool_calls_as_text(msg: AIMessage, *, max_chars: int) -> str:
 
 
 class MarkdownLlmSessionLog(BaseCallbackHandler):
-    """仅将纯文本与来源 Agent 写入 Markdown；按行数切分多文件，避免单文件过大。"""
+    """纯文本 + 来源 Agent；按行数切分文件。
+
+    对同一 Agent 的多轮 ``on_chat_model_start`` / ``on_llm_start``，仅写入相对上一轮
+    **新增**的消息或 prompt 片段（最长公共前缀之后），避免重复刷完整历史。
+    """
 
     def __init__(
         self,
@@ -114,11 +152,13 @@ class MarkdownLlmSessionLog(BaseCallbackHandler):
         self._session_id = session_id
         self._block_max = max(4_000, int(block_max_chars))
         self._max_lines = int(max_file_lines)
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
         self._base_path.parent.mkdir(parents=True, exist_ok=True)
         self._part = 0
         self._current_path = self._path_for_part(0)
         self._lines_in_file = 0
+        self._chat_msg_fp_by_agent: dict[str, list[str]] = {}
+        self._prompt_fp_by_agent: dict[str, list[str]] = {}
         self._bootstrap_part0()
 
     def _path_for_part(self, part: int) -> Path:
@@ -155,33 +195,37 @@ class MarkdownLlmSessionLog(BaseCallbackHandler):
             f.write(text)
             f.flush()
 
-    def _append_block(self, block: str) -> None:
+    def _append_block_under_lock(self, block: str) -> None:
+        """在已持有 ``self._lock`` 时追加一块文本（含按行数切文件）。"""
         if not block:
             return
         if not block.endswith("\n"):
             block += "\n"
         remaining = block
+        while remaining:
+            while self._lines_in_file >= self._max_lines:
+                self._rotate_file_unlocked()
+            space = self._max_lines - self._lines_in_file
+            if space <= 0:
+                self._rotate_file_unlocked()
+                continue
+            lines_rem = _line_count(remaining)
+            if lines_rem <= space:
+                self._write_raw_to_path(self._current_path, remaining, append=True)
+                self._lines_in_file += lines_rem
+                remaining = ""
+            else:
+                head, tail = _take_first_n_lines(remaining, space)
+                if head:
+                    self._write_raw_to_path(self._current_path, head, append=True)
+                self._lines_in_file += space
+                remaining = tail
+                if remaining:
+                    self._rotate_file_unlocked()
+
+    def _append_block(self, block: str) -> None:
         with self._lock:
-            while remaining:
-                while self._lines_in_file >= self._max_lines:
-                    self._rotate_file_unlocked()
-                space = self._max_lines - self._lines_in_file
-                if space <= 0:
-                    self._rotate_file_unlocked()
-                    continue
-                lines_rem = _line_count(remaining)
-                if lines_rem <= space:
-                    self._write_raw_to_path(self._current_path, remaining, append=True)
-                    self._lines_in_file += lines_rem
-                    remaining = ""
-                else:
-                    head, tail = _take_first_n_lines(remaining, space)
-                    if head:
-                        self._write_raw_to_path(self._current_path, head, append=True)
-                    self._lines_in_file += space
-                    remaining = tail
-                    if remaining:
-                        self._rotate_file_unlocked()
+            self._append_block_under_lock(block)
 
     def emit_custom(self, event: str, payload: dict[str, Any] | None = None) -> None:
         payload = payload or {}
@@ -202,7 +246,8 @@ class MarkdownLlmSessionLog(BaseCallbackHandler):
             body = f"事件: session_error\n{payload.get('traceback', '')}"
         else:
             body = f"事件: {event}\n{_trim(str(payload), self._block_max)}"
-        self._append_block(_format_block(agent=agent, kind="系统", body=_trim(body, self._block_max)))
+        block = _format_block(agent=agent, kind="系统", body=_trim(body, self._block_max))
+        self._append_block(block)
         _LOG.debug("llm_session_md 写入: %s", event)
 
     def on_chat_model_start(
@@ -217,13 +262,27 @@ class MarkdownLlmSessionLog(BaseCallbackHandler):
         **kwargs: Any,
     ) -> None:
         agent = _agent_from_tags(tags)
-        parts: list[str] = []
+        flat: list[BaseMessage] = []
         for turn in messages:
-            for m in turn:
+            flat.extend(turn)
+        if not flat:
+            return
+        with self._lock:
+            fps = [_message_fingerprint(m) for m in flat]
+            prev = self._chat_msg_fp_by_agent.get(agent, [])
+            k = _lcp_len(prev, fps)
+            new_msgs = flat[k:]
+            self._chat_msg_fp_by_agent[agent] = fps
+            if not new_msgs:
+                _LOG.debug("llm_session_md 跳过已记录的 LLM 输入前缀: agent=%s", agent)
+                return
+            parts: list[str] = []
+            for m in new_msgs:
                 role = type(m).__name__
                 parts.append(f"[{role}]\n{_message_body_text(m, max_chars=self._block_max)}")
-        body = "\n\n".join(parts)
-        self._append_block(_format_block(agent=agent, kind="LLM 输入", body=body))
+            body = "\n\n".join(parts)
+            block = _format_block(agent=agent, kind="LLM 输入(增量)", body=body)
+            self._append_block_under_lock(block)
 
     def on_llm_start(
         self,
@@ -240,8 +299,19 @@ class MarkdownLlmSessionLog(BaseCallbackHandler):
         if not prompts or all(not str(p).strip() for p in prompts):
             return
         agent = _agent_from_tags(tags)
-        body = "\n\n".join(_trim(p, self._block_max) for p in prompts)
-        self._append_block(_format_block(agent=agent, kind="LLM 输入(prompt)", body=body))
+        plist = [str(p) for p in prompts]
+        with self._lock:
+            cur_fp = [_prompt_fingerprint(p) for p in plist]
+            prev = self._prompt_fp_by_agent.get(agent, [])
+            k = _lcp_len(prev, cur_fp)
+            new_prompts = plist[k:]
+            self._prompt_fp_by_agent[agent] = cur_fp
+            if not new_prompts:
+                _LOG.debug("llm_session_md 跳过已记录的 prompt 前缀: agent=%s", agent)
+                return
+            body = "\n\n".join(_trim(p, self._block_max) for p in new_prompts)
+            block = _format_block(agent=agent, kind="LLM 输入(prompt 增量)", body=body)
+            self._append_block_under_lock(block)
 
     def on_llm_end(
         self,
