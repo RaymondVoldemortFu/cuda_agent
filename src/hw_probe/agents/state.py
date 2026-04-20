@@ -13,3 +13,4 @@ class ProbeState(TypedDict, total=False):
     results: dict[str, Any]
     methodology: str
     _route: Literal["planner", "programmer", "synthesize"]
+    session_started_utc_iso: str

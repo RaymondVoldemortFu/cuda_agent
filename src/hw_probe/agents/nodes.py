@@ -14,6 +14,7 @@ from hw_probe.agents.prompts import (
     PROGRAMMER_SYSTEM,
     SUPERVISOR_SYSTEM,
     SYNTHESIZER_SYSTEM,
+    elapsed_minutes_since_session_start,
     planner_user_message,
     programmer_user_message,
     supervisor_user_message,
@@ -92,7 +93,13 @@ def build_planner_node(settings: AppSettings, trace_callbacks: list[Any] | None)
         resp = model.invoke(
             [
                 SystemMessage(content=PLANNER_SYSTEM),
-                HumanMessage(content=planner_user_message(list(targets))),
+                HumanMessage(
+                    content=planner_user_message(
+                        list(targets),
+                        session_started_utc_iso=state.get("session_started_utc_iso"),
+                        max_total_runtime_minutes=settings.max_total_runtime_minutes,
+                    )
+                ),
             ],
             config=_trace_invoke_config(trace_callbacks, tags=["graph:planner"]),
         )
@@ -119,12 +126,22 @@ def build_programmer_node(settings: AppSettings, trace_callbacks: list[Any] | No
         tail = "\n\n---\n\n".join(log[-3:]) if log else ""
 
         _LOG.debug("programmer_node 开始 round=%s", next_round)
+        elapsed = elapsed_minutes_since_session_start(state.get("session_started_utc_iso"))
+        if elapsed is not None and elapsed >= float(settings.max_total_runtime_minutes):
+            _LOG.info("programmer_node 跳过（总运行时限已到 %.2f min）", elapsed)
+            log.append(f"=== programmer_round={next_round} SKIPPED_DEADLINE elapsed_min≈{elapsed:.2f} ===")
+            return {
+                "programmer_rounds": next_round,
+                "evidence_log": log,
+            }
         user = programmer_user_message(
             targets=targets,
             plan=plan,
             evidence_so_far=tail,
             round_index=next_round,
             max_rounds=settings.supervisor_max_loops,
+            session_started_utc_iso=state.get("session_started_utc_iso"),
+            max_total_runtime_minutes=settings.max_total_runtime_minutes,
         )
         cfg = _trace_invoke_config(
             trace_callbacks,
@@ -166,6 +183,15 @@ def build_supervisor_node(settings: AppSettings, trace_callbacks: list[Any] | No
             _LOG.debug("supervisor -> planner（尚无计划）")
             return {"_route": "planner"}
 
+        elapsed = elapsed_minutes_since_session_start(state.get("session_started_utc_iso"))
+        if elapsed is not None and elapsed >= float(settings.max_total_runtime_minutes):
+            _LOG.info(
+                "supervisor -> synthesize（总运行时限已到 %.2f >= %s min）",
+                elapsed,
+                settings.max_total_runtime_minutes,
+            )
+            return {"_route": "synthesize"}
+
         rounds = int(state.get("programmer_rounds") or 0)
         if rounds >= settings.supervisor_max_loops:
             _LOG.info("supervisor -> synthesize（已达 programmer 轮次上限 %s）", settings.supervisor_max_loops)
@@ -183,6 +209,8 @@ def build_supervisor_node(settings: AppSettings, trace_callbacks: list[Any] | No
             evidence_tail=tail,
             programmer_rounds=rounds,
             max_rounds=settings.supervisor_max_loops,
+            session_started_utc_iso=state.get("session_started_utc_iso"),
+            max_total_runtime_minutes=settings.max_total_runtime_minutes,
         )
         resp = model.invoke(
             [
@@ -216,7 +244,13 @@ def build_synthesizer_node(settings: AppSettings, trace_callbacks: list[Any] | N
         plan = state.get("plan") or ""
         log = state.get("evidence_log") or []
         evidence = "\n\n---\n\n".join(log)
-        user = synthesizer_user_message(targets=targets, plan=plan, evidence=evidence)
+        user = synthesizer_user_message(
+            targets=targets,
+            plan=plan,
+            evidence=evidence,
+            session_started_utc_iso=state.get("session_started_utc_iso"),
+            max_total_runtime_minutes=settings.max_total_runtime_minutes,
+        )
         resp = model.invoke(
             [
                 SystemMessage(content=SYNTHESIZER_SYSTEM),

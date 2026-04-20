@@ -83,6 +83,12 @@ class AppSettings(BaseSettings):
         ge=1,
         validation_alias=AliasChoices("HW_PROBE_SUPERVISOR_MAX_LOOPS"),
     )
+    max_total_runtime_minutes: int = Field(
+        default=30,
+        ge=1,
+        le=480,
+        validation_alias=AliasChoices("HW_PROBE_MAX_TOTAL_RUNTIME_MINUTES"),
+    )
 
     output_filename: str = Field(
         default="output.json",

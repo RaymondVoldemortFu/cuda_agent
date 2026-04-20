@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Any
 
 from langgraph.graph import END, START, StateGraph
@@ -58,9 +59,15 @@ def run_probe_graph(
     cfg: dict[str, Any] = {"recursion_limit": 200, "max_concurrency": 1}
     if trace_callbacks:
         cfg["callbacks"] = trace_callbacks
+    started = datetime.now(timezone.utc).isoformat()
     return dict(
         app.invoke(
-            {"targets": targets, "programmer_rounds": 0, "evidence_log": []},
+            {
+                "targets": targets,
+                "programmer_rounds": 0,
+                "evidence_log": [],
+                "session_started_utc_iso": started,
+            },
             config=cfg,
         )
     )
