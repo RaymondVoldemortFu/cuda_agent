@@ -1,0 +1,10 @@
+{
+  "targets": [
+    "dram_latency_cycles",
+    "max_shmem_per_block_kb",
+    "actual_boost_clock_mhz",
+    "launch__sm_count",
+    "dram__bytes_read.sum.per_second",
+    "dram__bytes_write.sum.per_second"
+  ]
+}

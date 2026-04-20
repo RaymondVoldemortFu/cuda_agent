@@ -1,6 +1,7 @@
 
+# MLSYS 硬件探针 Agent（本仓库）
 
-This is a very rudimentary agent implementation. It does not provide modularization between the agent and the tools, and the implementations of its various functions are highly coupled. It is provided for reference only. 
+实现位于 `src/hw_probe/`：使用 **uv** 管理依赖、**LangGraph** 编排多智能体、**LangChain** 调用 OpenAI 兼容 API；单一 **编程子智能体（ReAct）** 在工作区内完成 CUDA 编写、编译、运行与 ncu。本地请在仓库根执行 `uv run python -m hw_probe.main --dev`（会加载 `.env` 并将默认规格路径设为 `target/target_spec.json`、工作区为 `.`）；示例规格见仓库内 [target/target_spec.json](target/target_spec.json)。运行后于 **`log/hw_probe.debug.log`**（DEBUG 应用日志）与 **`log/llm_trace.jsonl`**（完整 LangChain 回调链）查看诊断；控制台可用 `--console-log-level DEBUG` 提高详细度。**Ctrl+C / SIGTERM** 会置位终止标志、尝试 `interrupt_main` 打断主线程阻塞，并对 **shell / nvcc / ncu** 子进程做可中断轮询与收尾。评测与上传见 [SERVER_SUBMIT.md](SERVER_SUBMIT.md)。
 
 # !!! NOTICE !!!
 - A new server with access to the external internet (such as ChatGPT) has been added: `10.176.34.113`
