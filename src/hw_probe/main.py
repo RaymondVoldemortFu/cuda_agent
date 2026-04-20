@@ -7,15 +7,22 @@ import sys
 import traceback
 import uuid
 from pathlib import Path
+from typing import Any
 
 from hw_probe.agents.graph import run_probe_graph
 from hw_probe.config.settings import bootstrap_settings
+from hw_probe.observability.llm_session_markdown import MarkdownLlmSessionLog
 from hw_probe.observability.llm_trace import JsonlLlmTraceHandler
 from hw_probe.runtime.shutdown import install_shutdown_handlers
 from hw_probe.observability.logging_setup import configure_logging, parse_console_level
 from hw_probe.observability.status_report import print_system_status
 from hw_probe.services.output_writer import append_results_log, write_output_json
 from hw_probe.services.target_spec import load_target_spec
+
+
+def _emit_trace_custom(handlers: list[Any], event: str, payload: dict | None = None) -> None:
+    for h in handlers:
+        h.emit_custom(event, payload)
 
 
 def _package_dir() -> Path:
@@ -72,9 +79,17 @@ def main() -> None:
 
     log_dir = settings.resolved_log_dir()
     trace_path = log_dir / settings.llm_trace_jsonl_filename
+    md_path = log_dir / settings.llm_session_markdown_filename
     session_id = str(uuid.uuid4())
     trace_handler = JsonlLlmTraceHandler(trace_path, session_id=session_id)
-    trace_handler.emit_custom(
+    md_log = MarkdownLlmSessionLog(
+        md_path,
+        session_id=session_id,
+        block_max_chars=settings.max_tool_output_chars,
+    )
+    trace_handlers: list[Any] = [trace_handler, md_log]
+    _emit_trace_custom(
+        trace_handlers,
         "session_start",
         {
             "argv": sys.argv,
@@ -94,21 +109,23 @@ def main() -> None:
     _seed_default_probe(ws)
 
     try:
-        final = run_probe_graph(settings, targets=targets, trace_callbacks=[trace_handler])
+        final = run_probe_graph(settings, targets=targets, trace_callbacks=trace_handlers)
     except KeyboardInterrupt:
         append_results_log(ws, settings.results_log_name, "会话被用户中断 (KeyboardInterrupt)")
-        trace_handler.emit_custom("session_interrupted", {"reason": "KeyboardInterrupt"})
+        _emit_trace_custom(trace_handlers, "session_interrupted", {"reason": "KeyboardInterrupt"})
         print("\n[hw_probe] 已收到终止信号，正在退出。", file=sys.stderr, flush=True)
         raise SystemExit(130) from None
     except Exception:
         append_results_log(ws, settings.results_log_name, traceback.format_exc())
-        trace_handler.emit_custom(
+        _emit_trace_custom(
+            trace_handlers,
             "session_error",
             {"traceback": traceback.format_exc()},
         )
         raise
     else:
-        trace_handler.emit_custom(
+        _emit_trace_custom(
+            trace_handlers,
             "session_end",
             {"results_keys": list((final.get("results") or {}).keys())},
         )
@@ -127,6 +144,7 @@ def main() -> None:
     append_results_log(ws, settings.results_log_name, f"完成: 已写入 {out_path} session={session_id}")
     print(f"[hw_probe] 输出: {out_path}", flush=True)
     print(f"[hw_probe] 完整 LLM trace: {trace_path}", flush=True)
+    print(f"[hw_probe] LLM 可读日志 (Markdown): {md_path}", flush=True)
     print(f"[hw_probe] DEBUG 日志: {log_dir / settings.debug_log_filename}", flush=True)
 
 

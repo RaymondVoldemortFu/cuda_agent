@@ -113,6 +113,10 @@ class AppSettings(BaseSettings):
         default="llm_trace.jsonl",
         validation_alias=AliasChoices("HW_PROBE_LLM_TRACE_JSONL"),
     )
+    llm_session_markdown_filename: str = Field(
+        default="llm_session.md",
+        validation_alias=AliasChoices("HW_PROBE_LLM_SESSION_MARKDOWN"),
+    )
     log_file_max_bytes: int = Field(
         default=20 * 1024 * 1024,
         ge=256 * 1024,

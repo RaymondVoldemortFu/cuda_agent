@@ -1,8 +1,10 @@
+from hw_probe.observability.llm_session_markdown import MarkdownLlmSessionLog
 from hw_probe.observability.llm_trace import JsonlLlmTraceHandler
 from hw_probe.observability.logging_setup import configure_logging, get_hw_probe_logger, parse_console_level
 from hw_probe.observability.status_report import log_system_status, print_system_status
 
 __all__ = [
+    "MarkdownLlmSessionLog",
     "JsonlLlmTraceHandler",
     "configure_logging",
     "get_hw_probe_logger",
