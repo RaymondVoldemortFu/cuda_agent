@@ -84,10 +84,16 @@ class AppSettings(BaseSettings):
         validation_alias=AliasChoices("HW_PROBE_SUPERVISOR_MAX_LOOPS"),
     )
     max_total_runtime_minutes: int = Field(
-        default=30,
+        default=25,
         ge=1,
         le=480,
         validation_alias=AliasChoices("HW_PROBE_MAX_TOTAL_RUNTIME_MINUTES"),
+    )
+    time_reminder_interval_minutes: int = Field(
+        default=5,
+        ge=1,
+        le=60,
+        validation_alias=AliasChoices("HW_PROBE_TIME_REMINDER_INTERVAL_MINUTES"),
     )
 
     output_filename: str = Field(
