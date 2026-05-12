@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import json
 import shutil
 import sys
 import traceback
@@ -17,7 +16,7 @@ from hw_probe.runtime.shutdown import install_shutdown_handlers
 from hw_probe.observability.logging_setup import configure_logging, parse_console_level
 from hw_probe.observability.status_report import print_system_status
 from hw_probe.services.output_writer import append_results_log, write_output_json
-from hw_probe.services.target_spec import load_target_spec
+from hw_probe.tools.lora import seed_initial_optimized_lora
 
 
 def _emit_trace_custom(handlers: list[Any], event: str, payload: dict | None = None) -> None:
@@ -47,7 +46,7 @@ def _seed_default_probe(workspace: Path) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="MLSYS GPU 硬件探针 Agent（LangGraph + LangChain）")
+    parser = argparse.ArgumentParser(description="MLSYS Stage2 LoRA 优化 Agent（LangGraph + LangChain）")
     parser.add_argument(
         "--dev",
         action="store_true",
@@ -99,15 +98,14 @@ def main() -> None:
         },
     )
 
-    try:
-        targets = load_target_spec(settings.target_spec_path.expanduser().resolve())
-    except (OSError, ValueError, json.JSONDecodeError) as exc:
-        print(f"读取 target 规格失败: {exc}", file=sys.stderr)
-        sys.exit(3)
+    targets = [
+        "optimize_lora_forward: Y = W X + A(B^T X), float32, r=16, d in [3584, 4608]",
+    ]
 
     append_results_log(ws, settings.results_log_name, f"启动: targets={targets!r} session={session_id}")
 
-    _seed_default_probe(ws)
+    optimized_path = seed_initial_optimized_lora(ws)
+    append_results_log(ws, settings.results_log_name, f"已初始化可编译基线: {optimized_path}")
 
     try:
         final = run_probe_graph(settings, targets=targets, trace_callbacks=trace_handlers)

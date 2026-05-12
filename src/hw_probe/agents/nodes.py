@@ -23,7 +23,7 @@ from hw_probe.agents.prompts import (
 from hw_probe.agents.state import ProbeState
 from hw_probe.config.settings import AppSettings
 from hw_probe.observability.logging_setup import get_hw_probe_logger
-from hw_probe.tools import make_cuda_tools, make_filesystem_tools, make_run_shell_tool
+from hw_probe.tools import make_cuda_tools, make_filesystem_tools, make_lora_tools, make_run_shell_tool
 
 _LOG = get_hw_probe_logger("agents")
 
@@ -81,6 +81,7 @@ def _all_tools(settings: AppSettings) -> list[Any]:
         *make_filesystem_tools(settings),
         make_run_shell_tool(settings),
         *make_cuda_tools(settings),
+        *make_lora_tools(settings),
     ]
 
 
@@ -260,10 +261,12 @@ def build_synthesizer_node(settings: AppSettings, trace_callbacks: list[Any] | N
         )
         raw = resp.content if isinstance(resp.content, str) else str(resp.content)
         parsed = extract_json_object(raw)
-        results = {t: parsed.get(t) for t in targets}
+        results = parsed
         methodology = (
-            "多智能体流程：Planner 产出计划；单一编程子智能体（ReAct）在工作区内完成"
-            "探测、编码、编译、运行与 ncu；Synthesizer 从证据汇总数值。"
+            "多智能体流程：Planner 产出 LoRA 优化搜索计划；单一 Programmer ReAct 子智能体"
+            "在工作区内生成候选 CUDA、调用评测工具完成 PyTorch extension 编译、正确性校验、"
+            "CUDA-event benchmark 与择优更新 optimized_lora.cu；Supervisor 根据证据与时间预算"
+            "控制迭代；Synthesizer 汇总候选对比和最终选择。"
         )
         _LOG.debug("synthesizer_node 结束 keys=%s", list(results.keys()))
         return {"results": results, "methodology": methodology}

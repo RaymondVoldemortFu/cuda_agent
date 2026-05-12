@@ -3,9 +3,18 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 source $HOME/.local/bin/env
 set -euo pipefail
 cd "$(dirname "$0")"
-if [[ -f uv.lock ]]; then
-  uv sync --frozen
-else
-  uv sync
+export PYTHONPATH="${PWD}/src:${PYTHONPATH:-}"
+
+# Stage2 needs the system PyTorch/CUDA installation from the evaluation image.
+# Install only the agent-side Python dependencies into the system/user Python,
+# then run with python3 so torch remains visible.
+if ! python3 - <<'PY'
+import langgraph  # noqa: F401
+import langchain_openai  # noqa: F401
+import pydantic_settings  # noqa: F401
+import ninja  # noqa: F401
+PY
+then
+  python3 -m pip install --user -e . -i https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple
 fi
-exec uv run python -m hw_probe.main "$@"
+exec python3 -m hw_probe.main "$@"
