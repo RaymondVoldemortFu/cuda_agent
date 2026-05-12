@@ -178,7 +178,7 @@ class AppSettings(BaseSettings):
     def validate_llm_config(self) -> None:
         if not self.api_key.strip():
             raise RuntimeError(
-                "缺少 API_KEY：请在评测环境注入 API_KEY，或在开发环境于 .env 中配置。"
+                "缺少 API_KEY：请通过环境变量或工作区 .env 配置 API_KEY。"
                 "本程序不会伪造凭据或绕过鉴权。"
             )
 
@@ -191,14 +191,16 @@ def _find_dotenv_file() -> Path | None:
 
 
 def bootstrap_settings(*, dev: bool = False) -> AppSettings:
-    """生产默认不读取 .env；本地使用 ``--dev`` 时加载 .env（不覆盖已注入的环境变量）。"""
+    """加载工作区 .env（不覆盖已注入环境变量），再构造统一配置。"""
+    had_explicit_environment = "HW_PROBE_ENVIRONMENT" in os.environ or "ENVIRONMENT" in os.environ
+    env_file = _find_dotenv_file()
+    if env_file is not None:
+        load_dotenv(env_file, override=False)
     if dev:
-        env_file = _find_dotenv_file()
-        if env_file is not None:
-            load_dotenv(env_file, override=False)
         os.environ.setdefault("HW_PROBE_ENVIRONMENT", "development")
-    elif os.environ.get("HW_PROBE_ENVIRONMENT", "").strip().lower() == "development":
-        env_file = _find_dotenv_file()
-        if env_file is not None:
-            load_dotenv(env_file, override=False)
+    elif not had_explicit_environment and os.environ.get("HW_PROBE_ENVIRONMENT", "").strip().lower() == "development":
+        # A checked-in/submitted .env may carry local development settings.
+        # Production `run.sh` should still use /workspace unless the environment
+        # explicitly requested another mode before loading .env.
+        os.environ.pop("HW_PROBE_ENVIRONMENT", None)
     return AppSettings()
