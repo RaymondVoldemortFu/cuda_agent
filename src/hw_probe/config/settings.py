@@ -191,11 +191,11 @@ def _find_dotenv_file() -> Path | None:
 
 
 def bootstrap_settings(*, dev: bool = False) -> AppSettings:
-    """加载工作区 .env（不覆盖已注入环境变量），再构造统一配置。"""
+    """加载工作区 .env（覆盖已注入的同名 API 配置），再构造统一配置。"""
     had_explicit_environment = "HW_PROBE_ENVIRONMENT" in os.environ or "ENVIRONMENT" in os.environ
     env_file = _find_dotenv_file()
     if env_file is not None:
-        load_dotenv(env_file, override=False)
+        load_dotenv(env_file, override=True)
     if dev:
         os.environ.setdefault("HW_PROBE_ENVIRONMENT", "development")
     elif not had_explicit_environment and os.environ.get("HW_PROBE_ENVIRONMENT", "").strip().lower() == "development":
