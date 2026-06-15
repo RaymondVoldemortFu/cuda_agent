@@ -97,12 +97,39 @@ class AppSettings(BaseSettings):
     )
 
     output_filename: str = Field(
-        default="output.json",
+        default="output3.json",
         validation_alias=AliasChoices("HW_PROBE_OUTPUT_FILENAME"),
     )
     results_log_name: str = Field(
         default="results.log",
         validation_alias=AliasChoices("HW_PROBE_RESULTS_LOG_NAME"),
+    )
+
+    phase3_model_config_path: Path = Field(
+        default=Path("/target/model_config.json"),
+        validation_alias=AliasChoices("HW_PROBE_PHASE3_MODEL_CONFIG_PATH"),
+    )
+    phase3_weight_dir: Path = Field(
+        default=Path("/target/weights"),
+        validation_alias=AliasChoices("HW_PROBE_PHASE3_WEIGHT_DIR"),
+    )
+    phase3_evaluator_dir: Path | None = Field(
+        default=None,
+        validation_alias=AliasChoices("HW_PROBE_PHASE3_EVALUATOR_DIR"),
+    )
+    phase3_candidate_dir_name: str = Field(
+        default="phase3_candidates",
+        validation_alias=AliasChoices("HW_PROBE_PHASE3_CANDIDATE_DIR_NAME"),
+    )
+    phase3_correctness_timeout_sec: int = Field(
+        default=180,
+        ge=1,
+        validation_alias=AliasChoices("HW_PROBE_PHASE3_CORRECTNESS_TIMEOUT_SEC"),
+    )
+    phase3_benchmark_timeout_sec: int = Field(
+        default=360,
+        ge=1,
+        validation_alias=AliasChoices("HW_PROBE_PHASE3_BENCHMARK_TIMEOUT_SEC"),
     )
 
     log_dir_name: str = Field(
@@ -147,9 +174,11 @@ class AppSettings(BaseSettings):
         validation_alias=AliasChoices("HW_PROBE_LOG_FILE_BACKUP_COUNT"),
     )
 
-    @field_validator("workspace_root", "target_spec_path", mode="before")
+    @field_validator("workspace_root", "target_spec_path", "phase3_model_config_path", "phase3_weight_dir", "phase3_evaluator_dir", mode="before")
     @classmethod
     def _coerce_path(cls, v: object) -> Path:
+        if v is None:
+            return v
         if isinstance(v, Path):
             return v
         return Path(str(v))
@@ -165,6 +194,10 @@ class AppSettings(BaseSettings):
             self.target_spec_path = Path("target/target_spec.json")
         if self.workspace_root == default_ws:
             self.workspace_root = Path(".")
+        if self.phase3_model_config_path == Path("/target/model_config.json"):
+            self.phase3_model_config_path = Path("stage3/target/model_config.json")
+        if self.phase3_weight_dir == Path("/target/weights"):
+            self.phase3_weight_dir = Path("stage3/target/weights")
         return self
 
     @property

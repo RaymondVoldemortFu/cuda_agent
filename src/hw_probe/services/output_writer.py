@@ -20,7 +20,7 @@ def write_output_json(
     methodology: str,
     evidence: list[str],
 ) -> Path:
-    """写入唯一交付物 output.json（内含 results，满足 README 单文件约束）。"""
+    """写入 Phase3 汇总交付物（默认 output3.json）。"""
     out = workspace / filename
     payload = {
         "results": results,

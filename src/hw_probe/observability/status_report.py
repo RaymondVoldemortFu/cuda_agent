@@ -35,6 +35,8 @@ def collect_system_status(settings: AppSettings) -> dict[str, Any]:
         "environment": settings.environment,
         "workspace_root": str(ws),
         "target_spec_path": str(spec),
+        "phase3_model_config_path": str(settings.phase3_model_config_path.expanduser()),
+        "phase3_weight_dir": str(settings.phase3_weight_dir.expanduser()),
         "log_dir": str(log_dir),
         "model": settings.model,
         "base_url_configured": bool(base),
@@ -57,7 +59,8 @@ def print_system_status(settings: AppSettings) -> None:
         f"  CWD           : {s['cwd']}",
         f"  Environment   : {s['environment']}",
         f"  Workspace     : {s['workspace_root']}",
-        f"  Target spec   : {s['target_spec_path']}",
+        f"  Phase3 config : {s['phase3_model_config_path']}",
+        f"  Phase3 weights: {s['phase3_weight_dir']}",
         f"  Log directory : {s['log_dir']}",
         f"  Model         : {s['model']}",
         f"  BASE_URL set  : {s['base_url_configured']}"

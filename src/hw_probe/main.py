@@ -1,11 +1,9 @@
 from __future__ import annotations
 
 import argparse
-import shutil
 import sys
 import traceback
 import uuid
-from pathlib import Path
 from typing import Any
 
 from hw_probe.agents.graph import run_probe_graph
@@ -16,7 +14,6 @@ from hw_probe.runtime.shutdown import install_shutdown_handlers
 from hw_probe.observability.logging_setup import configure_logging, parse_console_level
 from hw_probe.observability.status_report import print_system_status
 from hw_probe.services.output_writer import append_results_log, write_output_json
-from hw_probe.tools.lora import seed_initial_optimized_lora
 
 
 def _emit_trace_custom(handlers: list[Any], event: str, payload: dict | None = None) -> None:
@@ -24,29 +21,8 @@ def _emit_trace_custom(handlers: list[Any], event: str, payload: dict | None = N
         h.emit_custom(event, payload)
 
 
-def _package_dir() -> Path:
-    return Path(__file__).resolve().parent
-
-
-def _seed_default_probe(workspace: Path) -> None:
-    """若工作区尚无 probes/kernel.cu，则拷贝内置模板，便于首轮编译冒烟。"""
-    rel = Path("probes/kernel.cu")
-    dst = (workspace / rel).resolve()
-    try:
-        dst.relative_to(workspace.resolve())
-    except ValueError:
-        return
-    if dst.is_file():
-        return
-    tpl = _package_dir() / "templates" / "gemm_stub.cu"
-    if not tpl.is_file():
-        return
-    dst.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(tpl, dst)
-
-
 def main() -> None:
-    parser = argparse.ArgumentParser(description="MLSYS Stage2 LoRA 优化 Agent（LangGraph + LangChain）")
+    parser = argparse.ArgumentParser(description="MLSYS Phase3 LLM 推理运行时生成 Agent（LangGraph + LangChain）")
     parser.add_argument(
         "--dev",
         action="store_true",
@@ -94,18 +70,25 @@ def main() -> None:
         {
             "argv": sys.argv,
             "workspace": str(ws),
-            "target_spec": str(settings.target_spec_path.expanduser().resolve()),
+            "phase3_model_config": str(settings.phase3_model_config_path.expanduser()),
+            "phase3_weight_dir": str(settings.phase3_weight_dir.expanduser()),
         },
     )
 
     targets = [
-        "optimize_lora_forward: Y = W X + A(B^T X), float32, r=16, d in [3584, 4608]",
+        (
+            "generate_phase3_engine: create a correctness-passing and throughput-aware "
+            "decoder-only LLM inference runtime at workspace/engine.py for the Stage3 "
+            "create_engine/prefill/decode/remove interface"
+        ),
     ]
 
     append_results_log(ws, settings.results_log_name, f"启动: targets={targets!r} session={session_id}")
-
-    optimized_path = seed_initial_optimized_lora(ws)
-    append_results_log(ws, settings.results_log_name, f"已初始化可编译基线: {optimized_path}")
+    append_results_log(
+        ws,
+        settings.results_log_name,
+        "Phase3 启动: 将通过 LangGraph agent 生成候选 engine.py，并用 evaluator 结果决定 promotion。",
+    )
 
     try:
         final = run_probe_graph(settings, targets=targets, trace_callbacks=trace_handlers)
@@ -132,6 +115,14 @@ def main() -> None:
     results = final.get("results") or {}
     methodology = str(final.get("methodology") or "")
     evidence = list(final.get("evidence_log") or [])
+
+    engine_path = ws / "engine.py"
+    if not engine_path.is_file():
+        append_results_log(ws, settings.results_log_name, "失败: agent 结束但未生成 workspace/engine.py")
+        raise RuntimeError(
+            "Phase3 agent did not produce workspace/engine.py. "
+            "Inspect results.log and log/llm_session.md for the failed agent run."
+        )
 
     out_path = write_output_json(
         ws,
