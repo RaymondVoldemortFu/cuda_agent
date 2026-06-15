@@ -16,6 +16,7 @@ from hw_probe.agents.prompts import (
     SYNTHESIZER_SYSTEM,
     elapsed_minutes_since_session_start,
     planner_user_message,
+    programmer_runtime_reminder,
     programmer_user_message,
     supervisor_user_message,
     synthesizer_user_message,
@@ -99,6 +100,7 @@ def build_planner_node(settings: AppSettings, trace_callbacks: list[Any] | None)
                         list(targets),
                         session_started_utc_iso=state.get("session_started_utc_iso"),
                         max_total_runtime_minutes=settings.max_total_runtime_minutes,
+                        reminder_interval_minutes=settings.time_reminder_interval_minutes,
                     )
                 ),
             ],
@@ -116,7 +118,21 @@ def build_programmer_node(settings: AppSettings, trace_callbacks: list[Any] | No
     tools = _all_tools(settings)
     # 工具执行期异常（如 nvcc 失败）转为 ToolMessage，避免整图未捕获崩溃；仍保留完整错误文本供模型继续推理
     tool_node = ToolNode(tools, handle_tool_errors=True)
-    agent = create_react_agent(model, tool_node)
+    active_session_started: dict[str, str | None] = {"value": None}
+
+    def _programmer_dynamic_prompt(_state: dict[str, Any], _config: Any | None = None) -> list[BaseMessage]:
+        reminder = programmer_runtime_reminder(
+            session_started_utc_iso=active_session_started["value"],
+            max_total_runtime_minutes=settings.max_total_runtime_minutes,
+            reminder_interval_minutes=settings.time_reminder_interval_minutes,
+        )
+        messages = list(_state.get("messages") or [])
+        return [
+            SystemMessage(content=f"{PROGRAMMER_SYSTEM}\n\n<runtime_reminder>\n{reminder}\n</runtime_reminder>"),
+            *messages,
+        ]
+
+    agent = create_react_agent(model, tool_node, prompt=_programmer_dynamic_prompt)
 
     def programmer_node(state: ProbeState) -> dict[str, Any]:
         targets = list(state.get("targets") or [])
@@ -143,6 +159,7 @@ def build_programmer_node(settings: AppSettings, trace_callbacks: list[Any] | No
             max_rounds=settings.supervisor_max_loops,
             session_started_utc_iso=state.get("session_started_utc_iso"),
             max_total_runtime_minutes=settings.max_total_runtime_minutes,
+            reminder_interval_minutes=settings.time_reminder_interval_minutes,
         )
         cfg = _trace_invoke_config(
             trace_callbacks,
@@ -150,8 +167,9 @@ def build_programmer_node(settings: AppSettings, trace_callbacks: list[Any] | No
             extra={"recursion_limit": max(32, settings.react_max_steps * 2)},
         )
         try:
+            active_session_started["value"] = state.get("session_started_utc_iso")
             result = agent.invoke(
-                {"messages": [SystemMessage(content=PROGRAMMER_SYSTEM), HumanMessage(content=user)]},
+                {"messages": [HumanMessage(content=user)]},
                 config=cfg,
             )
         except Exception:
@@ -162,6 +180,8 @@ def build_programmer_node(settings: AppSettings, trace_callbacks: list[Any] | No
                 "programmer_rounds": next_round,
                 "evidence_log": log,
             }
+        finally:
+            active_session_started["value"] = None
 
         msgs = list(result.get("messages") or [])
         snippet = _messages_to_evidence_snippet(msgs, settings.max_tool_output_chars)
@@ -212,6 +232,7 @@ def build_supervisor_node(settings: AppSettings, trace_callbacks: list[Any] | No
             max_rounds=settings.supervisor_max_loops,
             session_started_utc_iso=state.get("session_started_utc_iso"),
             max_total_runtime_minutes=settings.max_total_runtime_minutes,
+            reminder_interval_minutes=settings.time_reminder_interval_minutes,
         )
         resp = model.invoke(
             [
@@ -251,6 +272,7 @@ def build_synthesizer_node(settings: AppSettings, trace_callbacks: list[Any] | N
             evidence=evidence,
             session_started_utc_iso=state.get("session_started_utc_iso"),
             max_total_runtime_minutes=settings.max_total_runtime_minutes,
+            reminder_interval_minutes=settings.time_reminder_interval_minutes,
         )
         resp = model.invoke(
             [

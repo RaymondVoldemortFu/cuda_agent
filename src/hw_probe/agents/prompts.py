@@ -58,6 +58,7 @@ PROGRAMMER_SYSTEM = """
 2. 每轮至少产生一个与历史不同的候选并调用 `evaluate_lora_candidate`。
 3. 优先用 shapes `3584,3601,4096`；若剩余时间很少，也必须至少包含一个非 4 对齐 shape（如 `3601`）来验证 tail；最终有时间再跑 `4608`。
 4. 不要重复提交完全相同源码或相同失败假设。
+5. 你会在每次模型调用前收到动态刷新的 `<runtime_reminder>`；剩余时间不足 3 分钟时停止新候选并准备收尾。
 </constraints>
 
 <deliverable>
@@ -121,13 +122,16 @@ def format_session_time_budget(
     *,
     session_started_utc_iso: str | None,
     max_total_runtime_minutes: int,
+    reminder_interval_minutes: int = 5,
 ) -> str:
     """供各角色用户消息中的 <time_budget> 块：当前 UTC、截止时刻、已用/剩余分钟。"""
     now = datetime.now(timezone.utc)
+    interval = max(1, int(reminder_interval_minutes))
     if not session_started_utc_iso or not str(session_started_utc_iso).strip():
         return (
             f"current_utc={now.isoformat()}\n"
             f"max_total_runtime_minutes={max_total_runtime_minutes}\n"
+            f"reminder_interval_minutes={interval}\n"
             "session_started_utc=（未记录；仍须控制步数与重试，避免无效循环）。"
         )
     try:
@@ -136,6 +140,7 @@ def format_session_time_budget(
         return (
             f"current_utc={now.isoformat()}\n"
             f"max_total_runtime_minutes={max_total_runtime_minutes}\n"
+            f"reminder_interval_minutes={interval}\n"
             "session_started_utc=（解析失败）"
         )
     if t0.tzinfo is None:
@@ -144,25 +149,54 @@ def format_session_time_budget(
     elapsed = (now - t0).total_seconds() / 60.0
     remaining = max(0.0, float(max_total_runtime_minutes) - elapsed)
     deadline = t0 + timedelta(minutes=float(max_total_runtime_minutes))
+    reminder_index = int(elapsed // float(interval))
+    current_reminder_elapsed = reminder_index * interval
+    next_reminder_elapsed = min(max_total_runtime_minutes, (reminder_index + 1) * interval)
+    next_reminder_utc = t0 + timedelta(minutes=float(next_reminder_elapsed))
     return (
         f"current_utc={now.isoformat()}\n"
         f"session_started_utc={t0.isoformat()}\n"
         f"deadline_utc={deadline.isoformat()}\n"
         f"max_total_runtime_minutes={max_total_runtime_minutes}\n"
+        f"reminder_interval_minutes={interval}\n"
+        f"current_5min_reminder_elapsed_minutes={current_reminder_elapsed}\n"
+        f"next_5min_reminder_elapsed_minutes={next_reminder_elapsed}\n"
+        f"next_5min_reminder_utc={next_reminder_utc.isoformat()}\n"
         f"elapsed_minutes≈{elapsed:.2f}\n"
         f"remaining_minutes≈{remaining:.2f}"
     )
+
+
+def programmer_runtime_reminder(
+    *,
+    session_started_utc_iso: str | None,
+    max_total_runtime_minutes: int,
+    reminder_interval_minutes: int = 5,
+) -> str:
+    """动态注入给正在运行的 ReAct Programmer：每次模型调用前刷新。"""
+    tb = format_session_time_budget(
+        session_started_utc_iso=session_started_utc_iso,
+        max_total_runtime_minutes=max_total_runtime_minutes,
+        reminder_interval_minutes=reminder_interval_minutes,
+    )
+    return f"""这是运行中的时间提醒。总预算从 Python 主程序开始计时为 {max_total_runtime_minutes} 分钟；`run.sh` 的 30 分钟评测窗口已预留约 5 分钟用于环境配置。
+系统按 {reminder_interval_minutes} 分钟节拍刷新提醒；如果当前已跨过新的 5 分钟边界，立即据此缩小候选搜索和 benchmark 范围。
+剩余时间不足 3 分钟时，不要再启动新的编译/长 benchmark，应整理当前最佳 `optimized_lora.cu` 与证据并交给汇总。
+
+{tb}"""
 
 
 def planner_user_message(
     targets: list[str],
     *,
     session_started_utc_iso: str | None = None,
-    max_total_runtime_minutes: int = 30,
+    max_total_runtime_minutes: int = 25,
+    reminder_interval_minutes: int = 5,
 ) -> str:
     tb = format_session_time_budget(
         session_started_utc_iso=session_started_utc_iso,
         max_total_runtime_minutes=max_total_runtime_minutes,
+        reminder_interval_minutes=reminder_interval_minutes,
     )
     return f"""<targets>
 {targets!r}
@@ -183,11 +217,13 @@ def supervisor_user_message(
     programmer_rounds: int,
     max_rounds: int,
     session_started_utc_iso: str | None = None,
-    max_total_runtime_minutes: int = 30,
+    max_total_runtime_minutes: int = 25,
+    reminder_interval_minutes: int = 5,
 ) -> str:
     tb = format_session_time_budget(
         session_started_utc_iso=session_started_utc_iso,
         max_total_runtime_minutes=max_total_runtime_minutes,
+        reminder_interval_minutes=reminder_interval_minutes,
     )
     return f"""
 <targets>{targets!r}</targets>
@@ -214,11 +250,13 @@ def programmer_user_message(
     round_index: int,
     max_rounds: int,
     session_started_utc_iso: str | None = None,
-    max_total_runtime_minutes: int = 30,
+    max_total_runtime_minutes: int = 25,
+    reminder_interval_minutes: int = 5,
 ) -> str:
     tb = format_session_time_budget(
         session_started_utc_iso=session_started_utc_iso,
         max_total_runtime_minutes=max_total_runtime_minutes,
+        reminder_interval_minutes=reminder_interval_minutes,
     )
     return f"""
 <targets>
@@ -251,11 +289,13 @@ def synthesizer_user_message(
     plan: str,
     evidence: str,
     session_started_utc_iso: str | None = None,
-    max_total_runtime_minutes: int = 30,
+    max_total_runtime_minutes: int = 25,
+    reminder_interval_minutes: int = 5,
 ) -> str:
     tb = format_session_time_budget(
         session_started_utc_iso=session_started_utc_iso,
         max_total_runtime_minutes=max_total_runtime_minutes,
+        reminder_interval_minutes=reminder_interval_minutes,
     )
     return f"""
 <targets>{targets!r}</targets>
